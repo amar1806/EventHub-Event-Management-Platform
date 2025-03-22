@@ -1,0 +1,147 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String    @id @default(uuid())
+  name            String?
+  email           String    @unique
+  emailVerified   DateTime?
+  image           String?
+  password        String?
+  role            Role      @default(ATTENDEE)
+  twoFactorSecret String?
+  twoFactorEnabled Boolean  @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  events          Event[]       // Events created by this user (as organizer)
+  tickets         Ticket[]      // Tickets purchased by this user
+  orders          Order[]       // Orders made by this user
+}
+
+enum Role {
+  ADMIN
+  ORGANIZER
+  ATTENDEE
+}
+
+model Event {
+  id            String    @id @default(uuid())
+  title         String
+  description   String    @db.Text
+  bannerImage   String?
+  startDateTime DateTime
+  endDateTime   DateTime
+  location      String
+  organizerId   String
+  price         Float     @default(0)
+  maxAttendees  Int?
+  isPaid        Boolean   @default(false)
+  isPublished   Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  organizer       User            @relation(fields: [organizerId], references: [id])
+  ticketCategories TicketCategory[]
+  tickets         Ticket[]
+  orders          Order[]         // Added relation to orders
+}
+
+model TicketCategory {
+  id           String    @id @default(uuid())
+  name         String
+  description  String?
+  price        Float
+  eventId      String
+  maxQuantity  Int?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  event        Event     @relation(fields: [eventId], references: [id])
+  tickets      Ticket[]
+}
+
+model Ticket {
+  id           String    @id @default(uuid())
+  qrCode       String?
+  isCheckedIn  Boolean   @default(false)
+  userId       String
+  eventId      String
+  categoryId   String?
+  orderId      String?
+  status       String?   @default("PENDING") // Added status field for tickets
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  user         User      @relation(fields: [userId], references: [id])
+  event        Event     @relation(fields: [eventId], references: [id])
+  category     TicketCategory? @relation(fields: [categoryId], references: [id])
+  order        Order?    @relation(fields: [orderId], references: [id])
+}
+
+model Order {
+  id              String       @id @default(uuid())
+  userId          String
+  eventId         String?      // Added eventId field
+  totalAmount     Float
+  status          OrderStatus  @default(PENDING)
+  paymentId       String?      @unique // Made unique for one-to-one relation
+  customerName    String?      // Added customer info fields
+  customerEmail   String?
+  customerPhone   String?
+  customerAddress String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  // Relations
+  user            User         @relation(fields: [userId], references: [id])
+  event           Event?       @relation(fields: [eventId], references: [id]) // Added relation to event
+  tickets         Ticket[]
+  payment         Payment?
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED      // Added COMPLETED status
+  CANCELLED
+  REFUNDED
+}
+
+model Payment {
+  id            String         @id @default(uuid())
+  orderId       String         @unique
+  amount        Float
+  currency      String         @default("USD")
+  paymentMethod String
+  status        PaymentStatus  @default(PENDING)
+  transactionId String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relations
+  order         Order          @relation(fields: [orderId], references: [id])
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
