@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     // Verify ticket categories belong to the event and are available
     for (const ticketItem of validatedData.tickets) {
       const category = event.ticketCategories.find(
-        (cat) => cat.id === ticketItem.categoryId
+        (cat: any) => cat.id === ticketItem.categoryId
       );
       
       if (!category) {
@@ -87,9 +87,7 @@ export async function POST(req: NextRequest) {
     
     // Calculate total amount to verify against the submitted amount
     const calculatedTotal = validatedData.tickets.reduce((total, ticketItem) => {
-      const category = event.ticketCategories.find(
-        (cat) => cat.id === ticketItem.categoryId
-      );
+      const category = event.ticketCategories.find((cat: any) => cat.id === ticketItem.categoryId);
       return total + (category?.price || 0) * ticketItem.quantity;
     }, 0);
     

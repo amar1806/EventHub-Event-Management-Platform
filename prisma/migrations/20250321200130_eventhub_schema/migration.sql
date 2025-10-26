@@ -1,3 +1,6 @@
+CREATE DATABASE IF NOT EXISTS `eventhub`;
+USE `eventhub`;
+
 -- CreateTable
 CREATE TABLE `User` (
     `id` VARCHAR(191) NOT NULL,

@@ -148,9 +148,17 @@ const OrganizerDashboard = () => {
         // Calculate stats
         const published = data.events.filter((event: any) => event.isPublished).length;
         const totalAttendees = data.events.reduce((acc: number, event: any) => acc + (event._count?.tickets || 0), 0);
+        
+        // Calculate revenue based on actual ticket sales
         const totalRevenue = data.events.reduce((acc: number, event: any) => {
-          const ticketsSold = event._count?.tickets || 0;
-          return acc + (event.price * ticketsSold);
+          // Count tickets from each ticket category with its respective price
+          const eventRevenue = event.ticketCategories.reduce((catAcc: number, category: any) => {
+            // Get tickets sold for this category
+            const ticketsSoldInCategory = category._count?.tickets || 0;
+            return catAcc + (category.price * ticketsSoldInCategory);
+          }, 0);
+          
+          return acc + eventRevenue;
         }, 0);
         
         setStats({

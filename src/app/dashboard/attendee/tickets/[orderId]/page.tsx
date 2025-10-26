@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -9,7 +9,7 @@ import Image from "next/image";
 interface Ticket {
   id: string;
   status: string;
-  ticketCategory: {
+  category: {
     id: string;
     name: string;
     price: number;
@@ -36,12 +36,17 @@ interface Order {
   };
 }
 
-export default function TicketsPage({ params }: { params: { orderId: string } }) {
+export default function TicketsPage({ params }: { params: any }) {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+  const [cancellingTicketId, setCancellingTicketId] = useState<string | null>(null);
+  
+  const { orderId } = React.use(params) as unknown as { orderId: string };
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -49,12 +54,12 @@ export default function TicketsPage({ params }: { params: { orderId: string } })
     } else if (status === "authenticated") {
       fetchOrder();
     }
-  }, [status, router, params.orderId]);
+  }, [status, router, orderId]);
 
   const fetchOrder = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/orders/${params.orderId}`);
+      const response = await fetch(`/api/orders/${orderId}`);
       
       if (!response.ok) {
         if (response.status === 404) {
@@ -92,6 +97,85 @@ export default function TicketsPage({ params }: { params: { orderId: string } })
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const handleSendEmail = async () => {
+    if (!session?.user?.email) {
+      alert("No email address found. Please update your profile.");
+      return;
+    }
+    
+    try {
+      setIsSendingEmail(true);
+      
+      const response = await fetch('/api/tickets/email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          orderId,
+          email: session.user.email
+        }),
+      });
+      
+      if (response.ok) {
+        setEmailSent(true);
+        alert("Tickets have been sent to your email!");
+      } else {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to send email");
+      }
+    } catch (err) {
+      console.error("Error sending email:", err);
+      alert("Failed to send email. Please try again later.");
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
+  const handleCancelTicket = async (ticketId: string) => {
+    if (!confirm("Kya aap sure hain ki aap is ticket ko cancel karna chahte hain? 48 ghante se pehle event ke start hone par cancel nahi kar payenge.")) {
+      return;
+    }
+    
+    try {
+      setCancellingTicketId(ticketId);
+      
+      const response = await fetch(`/api/tickets/${ticketId}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        // Update the ticket status in the UI
+        if (order) {
+          const updatedTickets = order.tickets.map(ticket => {
+            if (ticket.id === ticketId) {
+              return { ...ticket, status: "CANCELLED" };
+            }
+            return ticket;
+          });
+          
+          setOrder({
+            ...order,
+            tickets: updatedTickets
+          });
+        }
+        
+        alert("Ticket successfully cancelled!");
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to cancel ticket");
+      }
+    } catch (err) {
+      console.error("Error cancelling ticket:", err);
+      alert(err instanceof Error ? err.message : "Failed to cancel ticket");
+    } finally {
+      setCancellingTicketId(null);
+    }
   };
 
   // Render loading state
@@ -162,8 +246,8 @@ export default function TicketsPage({ params }: { params: { orderId: string } })
                 </svg>
               </div>
               <div>
-                <h2 className="text-xl font-bold">{order.event.title}</h2>
-                <p className="text-gray-600">{formatDate(order.event.startDateTime)}</p>
+                <h2 className="text-xl font-bold">{order.event?.title || 'Event'}</h2>
+                <p className="text-gray-600">{order.event ? formatDate(order.event.startDateTime) : 'Date not available'}</p>
               </div>
             </div>
             
@@ -172,14 +256,14 @@ export default function TicketsPage({ params }: { params: { orderId: string } })
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                {formatTime(order.event.startDateTime)} - {formatTime(order.event.endDateTime)}
+                {order.event ? `${formatTime(order.event.startDateTime)} - ${formatTime(order.event.endDateTime)}` : 'Time not available'}
               </div>
               <div className="w-full md:w-1/2 flex items-center">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                {order.event.location}
+                {order.event?.location || 'Location not available'}
               </div>
             </div>
             
@@ -201,30 +285,49 @@ export default function TicketsPage({ params }: { params: { orderId: string } })
                 <div key={ticket.id} className="border border-gray-200 rounded-lg p-4">
                   <div className="flex justify-between items-center">
                     <div>
-                      <h4 className="font-medium">{ticket.ticketCategory.name}</h4>
+                      <h4 className="font-medium">{ticket.category?.name || 'Standard Ticket'}</h4>
                       <div className="text-sm text-gray-500">Ticket #{ticket.id}</div>
                     </div>
                     <div className="text-right">
-                      <div className="font-bold">₹{ticket.ticketCategory.price}</div>
-                      <span className="inline-block px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                      <div className="font-bold">₹{ticket.category?.price || 0}</div>
+                      <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${
+                        ticket.status === "CANCELLED" 
+                          ? "bg-red-100 text-red-800" 
+                          : "bg-green-100 text-green-800"
+                      }`}>
                         {ticket.status}
                       </span>
                     </div>
                   </div>
                   
-                  <div className="mt-4 pt-4 border-t border-dashed border-gray-200 flex justify-between items-center">
-                    <div className="text-sm">
-                      <div className="font-medium">Event Info:</div>
-                      <div>{order.event.title}</div>
-                      <div>{formatDate(order.event.startDateTime)}</div>
+                  <div className="mt-4 pt-4 border-t border-dashed border-gray-200">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center">
+                      <div className="text-sm mb-3 sm:mb-0">
+                        <div className="font-medium">Event Info:</div>
+                        <div>{order.event?.title || 'Event'}</div>
+                        <div>{order.event ? formatDate(order.event.startDateTime) : 'Date not available'}</div>
+                      </div>
+                      
+                      <div className="flex space-x-2">
+                        <button
+                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                          onClick={() => alert("In a real app, this would download or display a printable ticket.")}
+                        >
+                          View Ticket
+                        </button>
+                        
+                        {ticket.status !== "CANCELLED" && (
+                          <button
+                            className={`px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 
+                              ${cancellingTicketId === ticket.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            onClick={() => handleCancelTicket(ticket.id)}
+                            disabled={cancellingTicketId === ticket.id}
+                          >
+                            {cancellingTicketId === ticket.id ? 'Cancelling...' : 'Cancel Ticket'}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    
-                    <button
-                      className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
-                      onClick={() => alert("In a real app, this would download or display a printable ticket.")}
-                    >
-                      View Ticket
-                    </button>
                   </div>
                 </div>
               ))}
@@ -255,10 +358,28 @@ export default function TicketsPage({ params }: { params: { orderId: string } })
         
         <div className="bg-gray-50 p-6 flex flex-col sm:flex-row justify-center space-y-3 sm:space-y-0 sm:space-x-4">
           <button 
-            className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            onClick={() => alert("In a real app, this would email your tickets.")}
+            className={`px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center justify-center ${isSendingEmail ? 'opacity-75 cursor-not-allowed' : ''}`}
+            onClick={handleSendEmail}
+            disabled={isSendingEmail || emailSent}
           >
-            Email Tickets
+            {isSendingEmail ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Sending...
+              </>
+            ) : emailSent ? (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Email Sent
+              </>
+            ) : (
+              "Email Tickets"
+            )}
           </button>
           <button 
             className="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
@@ -271,7 +392,7 @@ export default function TicketsPage({ params }: { params: { orderId: string } })
       
       <div className="text-center">
         <Link 
-          href={`/events/${order.event.id}`} 
+          href={`/events/${order.event?.id || ''}`} 
           className="text-blue-600 hover:underline flex items-center justify-center"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">

@@ -64,7 +64,7 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/dashboard/attendee" className="text-gray-300 hover:text-white text-sm">
+                <Link href="/dashboard/attendee/tickets" className="text-gray-300 hover:text-white text-sm">
                   My Tickets
                 </Link>
               </li>

@@ -31,29 +31,29 @@ const eventUpdateSchema = z.object({
 // GET handler for fetching a single event by ID
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: any }
 ) {
   try {
-    const eventId = params.id;
+    // Correct way to access params in Next.js 15
+    const { id } = await params;
     
-    // Fetch event with relationships
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: "Event ID is required" },
+        { status: 400 }
+      );
+    }
+    
+    // Fetch the event with ticket categories
     const event = await prisma.event.findUnique({
-      where: {
-        id: eventId,
-      },
+      where: { id },
       include: {
+        ticketCategories: true,
         organizer: {
           select: {
             id: true,
             name: true,
-            email: true,
             image: true,
-          },
-        },
-        ticketCategories: true,
-        _count: {
-          select: {
-            tickets: true,
           },
         },
       },
@@ -61,16 +61,66 @@ export async function GET(
     
     if (!event) {
       return NextResponse.json(
-        { error: "Event not found" },
+        { success: false, error: "Event not found" },
         { status: 404 }
       );
     }
     
-    return NextResponse.json(event);
+    // Get the session for user info
+    const session = await getServerSession(authOptions);
+    
+    // Check if ticket categories exist, if not create default ones
+    if (!event.ticketCategories || event.ticketCategories.length === 0) {
+      console.log("No ticket categories found, creating default categories");
+      
+      // Create default ticket categories
+      const categories = [
+        {
+          name: "General Admission",
+          description: "Standard entry ticket",
+          price: event.price || 500,
+          maxQuantity: 100,
+          eventId: id,
+        },
+        {
+          name: "VIP",
+          description: "VIP access with premium benefits",
+          price: (event.price || 500) * 2,
+          maxQuantity: 20, 
+          eventId: id,
+        },
+        {
+          name: "Early Bird",
+          description: "Discounted early bird tickets",
+          price: Math.floor((event.price || 500) * 0.8),
+          maxQuantity: 50,
+          eventId: id,
+        },
+      ];
+      
+      // Create ticket categories in database
+      const createdCategories = await Promise.all(
+        categories.map(category => 
+          prisma.ticketCategory.create({
+            data: category
+          })
+        )
+      );
+      
+      // Add the created categories to the response
+      event.ticketCategories = createdCategories;
+    }
+    
+    // Transform the event 
+    const eventWithInfo = {
+      ...event,
+    };
+    
+    return NextResponse.json(eventWithInfo);
   } catch (error) {
-    console.error("Error fetching event:", error);
+    console.error("Error fetching event details:", error);
     return NextResponse.json(
-      { error: "Failed to fetch event" },
+      { success: false, error: "Failed to fetch event details" },
       { status: 500 }
     );
   }
@@ -79,10 +129,11 @@ export async function GET(
 // PATCH handler for updating an event
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: any }
 ) {
   try {
-    const eventId = params.id;
+    // Correct way to access params in Next.js 15
+    const { id: eventId } = await params;
     
     // Check authentication
     const session = await getServerSession(authOptions);
@@ -155,13 +206,13 @@ export async function PATCH(
     // Handle ticket categories update if provided
     if (ticketCategories && ticketCategories.length > 0) {
       // Get existing ticket category IDs
-      const existingCategoryIds = event.ticketCategories.map(cat => cat.id);
+      const existingCategoryIds = event.ticketCategories.map((cat: { id: string }) => cat.id);
       
       // Separate categories to create, update, or delete
-      const categoriesToUpdate = ticketCategories.filter(cat => cat.id && existingCategoryIds.includes(cat.id));
-      const categoriesToCreate = ticketCategories.filter(cat => !cat.id);
-      const categoryIdsToKeep = categoriesToUpdate.map(cat => cat.id as string);
-      const categoryIdsToDelete = existingCategoryIds.filter(id => !categoryIdsToKeep.includes(id));
+      const categoriesToUpdate = ticketCategories.filter((cat: any) => cat.id && existingCategoryIds.includes(cat.id));
+      const categoriesToCreate = ticketCategories.filter((cat: any) => !cat.id);
+      const categoryIdsToKeep = categoriesToUpdate.map((cat: any) => cat.id as string);
+      const categoryIdsToDelete = existingCategoryIds.filter((id: string) => !categoryIdsToKeep.includes(id));
       
       // Delete removed categories
       if (categoryIdsToDelete.length > 0) {
@@ -226,10 +277,11 @@ export async function PATCH(
 // DELETE handler for deleting an event
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: any }
 ) {
   try {
-    const eventId = params.id;
+    // Correct way to access params in Next.js 15
+    const { id: eventId } = await params;
     
     // Check authentication
     const session = await getServerSession(authOptions);

@@ -159,6 +159,39 @@ export default function CreateEventPage() {
     reader.readAsDataURL(file);
   };
   
+  // Handle main banner upload 
+  const handleMainBannerUpload = async () => {
+    if (!imageFile) {
+      setError("Please select an image first");
+      return;
+    }
+    
+    try {
+      setIsLoading(true);
+      const formData = new FormData();
+      formData.append("file", imageFile);
+      formData.append("isMainBanner", "true");
+      
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error("Failed to upload main banner");
+      }
+      
+      const result = await response.json();
+      setMessage("Image set as main banner successfully!");
+      
+    } catch (err) {
+      console.error("Error uploading main banner:", err);
+      setError(err instanceof Error ? err.message : "Failed to upload main banner");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
   // Handle add ticket category
   const handleAddTicketCategory = () => {
     setTicketCategories(prev => [
@@ -455,18 +488,28 @@ export default function CreateEventPage() {
                       <img 
                         src={imagePreview} 
                         alt="Preview" 
-                        className="mx-auto h-32 object-cover rounded-md"
+                        className="mx-auto h-32 object-cover rounded-md" 
                       />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setImageFile(null);
-                          setImagePreview(null);
-                        }}
-                        className="mt-2 text-sm text-red-600 hover:text-red-800"
-                      >
-                        Remove
-                      </button>
+                      <div className="mt-2 flex justify-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setImageFile(null);
+                            setImagePreview(null);
+                          }}
+                          className="text-sm text-red-600 hover:text-red-800"
+                        >
+                          Remove
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleMainBannerUpload}
+                          className="text-sm bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700"
+                          title="Set this image as the homepage main banner"
+                        >
+                          Set as Main Banner
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <svg

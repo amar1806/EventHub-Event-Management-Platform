@@ -41,24 +41,6 @@ export async function GET(req: NextRequest) {
     const userId = searchParams.get("userId");
     const published = searchParams.get("published") === "true";
     
-    // If userId=current is specified, use the logged-in user's ID
-    if (userId === "current") {
-      if (!session) {
-        return NextResponse.json(
-          { error: "Unauthorized" },
-          { status: 401 }
-        );
-      }
-      
-      // For organizers fetching their own events
-      if (session.user.role === "ORGANIZER") {
-        organizerId = session.user.id;
-      }
-    }
-    
-    // Calculate pagination
-    const skip = (page - 1) * limit;
-    
     // Build where conditions
     const whereConditions: any = {};
     
@@ -78,6 +60,28 @@ export async function GET(req: NextRequest) {
       whereConditions.isPublished = published;
     }
     
+    // If userId=current is specified, use the logged-in user's ID
+    if (userId === "current") {
+      if (!session) {
+        return NextResponse.json(
+          { error: "Unauthorized" },
+          { status: 401 }
+        );
+      }
+      
+      // For organizers fetching their own events
+      if (session.user.role === "ORGANIZER") {
+        organizerId = session.user.id;
+        // Set organizer ID in where conditions to filter events
+        whereConditions.organizerId = session.user.id;
+        // Don't filter by published status when organizer is viewing their own events
+        delete whereConditions.isPublished;
+      }
+    }
+    
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+    
     // Get events from database
     const [events, totalCount] = await Promise.all([
       prisma.event.findMany({
@@ -91,7 +95,15 @@ export async function GET(req: NextRequest) {
               image: true,
             },
           },
-          ticketCategories: true,
+          ticketCategories: {
+            include: {
+              _count: {
+                select: {
+                  tickets: true
+                }
+              }
+            }
+          },
           _count: {
             select: {
               tickets: true,

@@ -68,7 +68,7 @@ export const authOptions: NextAuthOptions = {
   ],
   pages: {
     signIn: "/auth/login",
-    signOut: "/auth/signout",
+    signOut: "/",
     error: "/auth/error",
     newUser: "/auth/register",
   },
@@ -92,6 +92,11 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
     async redirect({ url, baseUrl }) {
+      // Handle signout redirect to home page
+      if (url.includes("signout")) {
+        return baseUrl;
+      }
+      
       // If the URL is an absolute URL, ensure it starts with the baseUrl
       if (url.startsWith("http")) {
         if (url.startsWith(baseUrl)) return url;

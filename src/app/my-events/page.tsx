@@ -28,8 +28,8 @@ export default function MyEventsPage() {
     <div className="flex items-center justify-center min-h-[70vh]">
       <div className="text-center">
         <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-        <h2 className="text-xl font-semibold mb-2">आपको रीडायरेक्ट किया जा रहा है...</h2>
-        <p className="text-gray-600">अपने इवेंट्स देखने के लिए कृपया प्रतीक्षा करें</p>
+        <h2 className="text-xl font-semibold mb-2">Please wait while we redirect you...</h2>
+        <p className="text-gray-600">Redirecting to your dashboard...</p>
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import prisma from '@/lib/db';
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -17,7 +17,7 @@ export async function GET(
       );
     }
     
-    const eventId = params.id;
+  const { id: eventId } = await params;
     
     // First check if the user has permission to view this event's attendees
     const event = await prisma.event.findUnique({
@@ -46,9 +46,7 @@ export async function GET(
     // Fetch tickets and related user information
     const tickets = await prisma.ticket.findMany({
       where: {
-        ticketCategory: {
-          eventId: eventId
-        }
+        eventId: eventId  // Query tickets directly by eventId
       },
       include: {
         user: {
@@ -56,10 +54,10 @@ export async function GET(
             id: true,
             name: true,
             email: true,
-            phone: true
+            phoneNumber: true
           }
         },
-        ticketCategory: {
+        category: {  // Use the correct relation name from schema
           select: {
             name: true
           }
@@ -71,22 +69,20 @@ export async function GET(
         }
       },
       orderBy: {
-        order: {
-          createdAt: 'desc'
-        }
+        createdAt: 'desc'  // Order by ticket creation date
       }
     });
     
     // Format the data for the frontend
-    const attendees = tickets.map(ticket => ({
+    const attendees = tickets.map((ticket: any) => ({
       id: ticket.id,
-      name: ticket.user.name,
-      email: ticket.user.email,
-      phone: ticket.user.phone,
-      ticketCount: ticket.quantity,
-      ticketCategory: ticket.ticketCategory.name,
-      purchaseDate: ticket.order.createdAt,
-      checkInStatus: ticket.checkInStatus
+      name: ticket.user?.name || 'Anonymous',
+      email: ticket.user?.email || 'No email',
+      phone: ticket.user?.phoneNumber || 'No phone',
+      ticketCount: 1,  // Fixed value since we don't have quantity
+      ticketCategory: ticket.category?.name || 'Standard',
+      purchaseDate: ticket.order?.createdAt || ticket.createdAt,
+      checkInStatus: ticket.isCheckedIn
     }));
     
     return NextResponse.json({ attendees });

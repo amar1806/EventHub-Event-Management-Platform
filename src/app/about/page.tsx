@@ -50,17 +50,17 @@ export default function AboutPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               <div className="text-center">
                 <div className="w-32 h-32 bg-gray-200 rounded-full mx-auto mb-4"></div>
-                <h3 className="text-lg font-semibold">Rahul Sharma</h3>
+                <h3 className="text-lg font-semibold">DipendraKumar</h3>
                 <p className="text-gray-600">Founder & CEO</p>
               </div>
               <div className="text-center">
                 <div className="w-32 h-32 bg-gray-200 rounded-full mx-auto mb-4"></div>
-                <h3 className="text-lg font-semibold">Priya Patel</h3>
+                <h3 className="text-lg font-semibold">Amarjeet Kumar</h3>
                 <p className="text-gray-600">CTO</p>
               </div>
               <div className="text-center">
                 <div className="w-32 h-32 bg-gray-200 rounded-full mx-auto mb-4"></div>
-                <h3 className="text-lg font-semibold">Amit Verma</h3>
+                <h3 className="text-lg font-semibold">Eventhub</h3>
                 <p className="text-gray-600">Head of Marketing</p>
               </div>
             </div>
@@ -76,10 +76,9 @@ export default function AboutPage() {
                   </div>
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold">EventHub ki shuruaat</h3>
+                  <h3 className="text-lg font-semibold">EventHub's Beginning </h3>
                   <p className="text-gray-600">
-                    EventHub ki starting mein humne local community events ko support karne ke liye platform develop kiya tha.
-                  </p>
+                  Initially, EventHub was developed as a platform to support local community events.                  </p>
                 </div>
               </div>
               <div className="flex flex-col md:flex-row gap-4">
@@ -91,8 +90,7 @@ export default function AboutPage() {
                 <div>
                   <h3 className="text-lg font-semibold">Platform Expansion</h3>
                   <p className="text-gray-600">
-                    Nationwide expansion ke baad, humne enterprise features add kiye aur large-scale events ko support karna shuru kiya.
-                  </p>
+                  After nationwide expansion, we introduced enterprise features and began supporting large-scale events.                  </p>
                 </div>
               </div>
               <div className="flex flex-col md:flex-row gap-4">
@@ -104,7 +102,7 @@ export default function AboutPage() {
                 <div>
                   <h3 className="text-lg font-semibold">Mobile App Launch</h3>
                   <p className="text-gray-600">
-                    Humne apni mobile app launch ki aur new payment gateways integrate kiye, jisse user experience aur better ho gaya.
+                  We launched our mobile app and integrated new payment gateways, significantly enhancing the user experience.
                   </p>
                 </div>
               </div>

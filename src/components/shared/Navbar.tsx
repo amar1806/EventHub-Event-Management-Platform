@@ -6,11 +6,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import UserMenu from "./UserMenu";
 import { signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const pathname = usePathname();
   const { data: session, status } = useSession();
+  const router = useRouter();
   
   const isActive = (path: string) => {
     return pathname === path
@@ -21,10 +23,15 @@ export default function Navbar() {
   const isLoading = status === "loading";
   const isAuthenticated = status === "authenticated";
 
-  const navigation = [
-    { name: "Home", href: "/" },
-    { name: "Events", href: "/events" },
-    { name: "About", href: "/about" },
+  const navigationLinks = [
+    { name: 'Home', href: '/' },
+    { name: 'Events', href: '/events' },
+    { name: 'Pricing', href: '/pricing' },
+    { name: 'Resources', href: '/resources' },
+    { name: 'Careers', href: '/careers' },
+    { name: 'Help', href: '/help' },
+    { name: 'Blog', href: '/blog' },
+    { name: 'About', href: '/about' },
   ];
 
   return (
@@ -71,7 +78,7 @@ export default function Navbar() {
         
         {/* Desktop navigation */}
         <div className="hidden lg:flex lg:gap-x-6">
-          {navigation.map((item) => (
+          {navigationLinks.map((item) => (
             <Link
               key={item.name}
               href={item.href}
@@ -145,7 +152,7 @@ export default function Navbar() {
       {mobileMenuOpen && (
         <div className="lg:hidden">
           <div className="space-y-1 px-4 py-3 border-t border-gray-200">
-            {navigation.map((item) => (
+            {navigationLinks.map((item) => (
               <Link
                 key={item.name}
                 href={item.href}
@@ -210,9 +217,10 @@ export default function Navbar() {
                   Two-Factor Authentication
                 </Link>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     setMobileMenuOpen(false);
-                    signOut({ callbackUrl: '/' });
+                    await signOut({ redirect: false });
+                    router.push('/');
                   }}
                   className="block w-full text-left py-2 text-base text-red-600"
                 >

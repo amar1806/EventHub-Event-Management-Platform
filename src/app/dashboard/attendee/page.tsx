@@ -60,7 +60,7 @@ const TicketCard = ({ ticket }: { ticket: any }) => {
           
           <div className="flex space-x-2">
             <Link 
-              href={`/tickets/${ticket.id}`}
+              href={`/dashboard/attendee/tickets/${ticket.orderId}`}
               className="bg-blue-600 text-white px-3 py-1 text-sm rounded hover:bg-blue-700"
             >
               View Ticket

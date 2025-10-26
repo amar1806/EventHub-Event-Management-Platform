@@ -5,6 +5,8 @@ import { signOut, useSession } from "next-auth/react";
 import { Menu, Transition } from "@headlessui/react";
 import Link from "next/link";
 import Image from "next/image";
+import { getGravatarUrl } from "@/utils/gravatar";
+import { useRouter } from "next/navigation";
 
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(" ");
@@ -12,20 +14,24 @@ function classNames(...classes: string[]) {
 
 export default function UserMenu() {
   const { data: session } = useSession();
+  const router = useRouter();
   
   if (!session?.user) {
     return null;
   }
+  
+  // Use Gravatar as fallback if no image is set
+  const userImage = session.user.image || (session.user.email ? getGravatarUrl(session.user.email) : null);
   
   return (
     <Menu as="div" className="relative ml-3">
       <div>
         <Menu.Button className="flex rounded-full bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-gray-800">
           <span className="sr-only">Open user menu</span>
-          {session.user.image ? (
+          {userImage ? (
             <Image
               className="h-8 w-8 rounded-full"
-              src={session.user.image}
+              src={userImage}
               alt=""
               width={32}
               height={32}
@@ -103,7 +109,10 @@ export default function UserMenu() {
           <Menu.Item>
             {({ active }) => (
               <button
-                onClick={() => signOut({ callbackUrl: '/' })}
+                onClick={async () => {
+                  await signOut({ redirect: false });
+                  router.push('/');
+                }}
                 className={classNames(
                   active ? "bg-gray-100" : "",
                   "block w-full text-left px-4 py-2 text-sm text-gray-700"

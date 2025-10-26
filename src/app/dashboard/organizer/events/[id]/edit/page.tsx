@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -29,9 +30,9 @@ const ticketCategorySchema = z.object({
   maxQuantity: z.number().int().positive("Max quantity must be positive").nullable(),
 });
 
-export default function EditEventPage() {
-  const params = useParams();
-  const eventId = params.id as string;
+export default function EditEventPage({ params }: { params: any }) {
+  // Use React.use to properly access params
+  const { id: eventId } = React.use(params) as unknown as { id: string };
   
   const router = useRouter();
   const { data: session, status } = useSession();

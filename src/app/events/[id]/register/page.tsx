@@ -12,7 +12,7 @@ interface TicketCategory {
   name: string;
   description: string;
   price: number;
-  maxQuantity: number;
+  maxQuantity: number | null;
 }
 
 interface Event {
@@ -20,15 +20,22 @@ interface Event {
   title: string;
   startDateTime: string;
   endDateTime: string;
-  isPaid: boolean;
+  description: string;
+  location: string;
+  organizerId: string;
+  imageUrl: string;
   price: number;
+  category: string;
   ticketCategories: TicketCategory[];
 }
 
-export default function EventRegistrationPage() {
-  // Use useParams hook to get the event ID
-  const params = useParams();
-  const eventId = params.id as string;
+interface PageParams {
+  id: string;
+}
+
+export default function EventRegistrationPage({ params }: { params: any }) {
+  // Use React.use to access params in client component
+  const { id: eventId } = React.use(params) as unknown as { id: string };
   
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -68,39 +75,44 @@ export default function EventRegistrationPage() {
         const data = await response.json();
         console.log("Received event data:", data);
         
-        // Validate ticketCategories exists and is an array
-        if (!data.ticketCategories || !Array.isArray(data.ticketCategories)) {
-          console.error("No ticket categories found in response or invalid format", data);
-          data.ticketCategories = []; // Ensure it's at least an empty array to prevent errors
+        // Safety check for data
+        if (!data) {
+          throw new Error("No data received from API");
         }
         
-        if (data.ticketCategories && data.ticketCategories.length === 0) {
-          console.log("No ticket categories found for this event. Will try to fetch from seed API.");
+        // Extract the correct event data structure
+        let eventData = data;
+        
+        // Handle response formats - data might be directly the event object or inside an event property
+        if (data.event) {
+          eventData = data.event;
+        }
+        
+        // Initialize ticketCategories if missing
+        if (!eventData.ticketCategories) {
+          eventData.ticketCategories = [];
+          console.log("No ticket categories found, initializing with empty array");
+        }
+        
+        // Ensure it's an array
+        if (!Array.isArray(eventData.ticketCategories)) {
+          console.error("Invalid ticket categories format, not an array", eventData);
+          eventData.ticketCategories = [];
+        }
+        
+        // If no ticket categories are available, try to seed them
+        if (eventData.ticketCategories.length === 0) {
+          console.log("No ticket categories found, attempting to seed them...");
           
-          // Try to seed ticket categories for this event
           try {
-            const seedResponse = await fetch(`/api/seed?eventId=${eventId}`, {
-              method: "GET",
-            });
-            
+            const seedResponse = await fetch(`/api/seed?eventId=${eventId}`);
             if (seedResponse.ok) {
-              console.log("Successfully seeded ticket categories, refreshing event data...");
-              // Fetch the event again to get the newly created ticket categories
-              const refreshResponse = await fetch(`/api/events/${eventId}`);
-              if (refreshResponse.ok) {
-                const refreshedData = await refreshResponse.json();
-                setEvent(refreshedData);
-                
-                // Initialize ticket selections with the refreshed data
-                const initialSelections: {[key: string]: number} = {};
-                if (refreshedData.ticketCategories) {
-                  refreshedData.ticketCategories.forEach((category: TicketCategory) => {
-                    initialSelections[category.id] = 0;
-                  });
-                }
-                setTicketSelections(initialSelections);
-                setLoading(false);
-                return;
+              const seedData = await seedResponse.json();
+              console.log("Successfully seeded ticket categories:", seedData);
+              
+              if (seedData.data && Array.isArray(seedData.data)) {
+                eventData.ticketCategories = seedData.data;
+                console.log(`Added ${seedData.data.length} ticket categories to event data`);
               }
             } else {
               console.error("Failed to seed ticket categories", await seedResponse.text());
@@ -110,13 +122,13 @@ export default function EventRegistrationPage() {
           }
         }
         
-        setEvent(data);
+        console.log("Final event data with ticket categories:", eventData);
+        setEvent(eventData);
         
         // Initialize ticket selections with 0 for each category
         const initialSelections: {[key: string]: number} = {};
-        if (data.ticketCategories) {
-          console.log(`Initializing selections for ${data.ticketCategories.length} ticket categories`);
-          data.ticketCategories.forEach((category: TicketCategory) => {
+        if (eventData.ticketCategories) {
+          eventData.ticketCategories.forEach((category: TicketCategory) => {
             initialSelections[category.id] = 0;
           });
         }
@@ -143,10 +155,27 @@ export default function EventRegistrationPage() {
     }
   }, [session]);
 
+  // Get total tickets
+  const getTotalTickets = () => {
+    return Object.values(ticketSelections).reduce((sum, qty) => sum + qty, 0);
+  };
+
+  // Calculate total
+  const calculateTotal = () => {
+    if (!event || !event.ticketCategories) return 0;
+    
+    return event.ticketCategories.reduce((total, category) => {
+      const quantity = ticketSelections[category.id] || 0;
+      return total + (category.price * quantity);
+    }, 0);
+  };
+
   // Handle ticket quantity change
   const handleQuantityChange = (categoryId: string, action: "increase" | "decrease") => {
+    if (!event || !event.ticketCategories) return;
+    
     setTicketSelections(prev => {
-      const category = event?.ticketCategories.find(c => c.id === categoryId);
+      const category = event.ticketCategories.find(c => c.id === categoryId);
       if (!category) return prev;
       
       const currentQty = prev[categoryId] || 0;
@@ -162,36 +191,18 @@ export default function EventRegistrationPage() {
     });
   };
 
-  // Calculate total
-  const calculateTotal = () => {
-    if (!event) return 0;
-    
-    return event.ticketCategories.reduce((total, category) => {
-      const quantity = ticketSelections[category.id] || 0;
-      return total + (category.price * quantity);
-    }, 0);
-  };
-
-  // Get total tickets
-  const getTotalTickets = () => {
-    return Object.values(ticketSelections).reduce((sum, qty) => sum + qty, 0);
-  };
-
   // Enhanced handleProceedToCheckout with better error messaging and validation
   const handleProceedToCheckout = () => {
-    // First, verify if event data is loaded correctly
     if (!event) {
       setError("Unable to load event information. Please refresh the page.");
       return;
     }
     
-    // Check if there are no ticket categories 
     if (!event.ticketCategories || event.ticketCategories.length === 0) {
       setError("No tickets available for this event.");
       return;
     }
     
-    // Check if user has selected tickets
     if (getTotalTickets() === 0) {
       setError("Please select at least one ticket to continue.");
       return;
@@ -341,14 +352,14 @@ export default function EventRegistrationPage() {
       // Verify we're still logged in
       if (status !== "authenticated") {
         setError("Your session has expired. Please log in again");
-        router.push(`/auth/signin?callbackUrl=/events/${eventId}/register`);
+        router.push(`/auth/login?callbackUrl=/events/${eventId}/register`);
         return;
       }
       
       // Make sure we have the user ID
       if (!session?.user?.id) {
         setError("User ID not found. Please log in again");
-        router.push(`/auth/signin?callbackUrl=/events/${eventId}/register`);
+        router.push(`/auth/login?callbackUrl=/events/${eventId}/register`);
         return;
       }
       
@@ -409,6 +420,9 @@ export default function EventRegistrationPage() {
       const orderResult = await orderResponse.json();
       console.log("Order created successfully:", orderResult);
       
+      // Set order ID for confirmation
+      setOrderId(orderResult.id);
+      
       // Add slight delay for better UX
       await simulatePaymentProcessing();
       
@@ -455,19 +469,20 @@ export default function EventRegistrationPage() {
       if (!paymentResponse.ok) {
         const errorData = await paymentResponse.json();
         console.error("Payment processing error:", errorData);
-        throw new Error(errorData.error || "Payment processing failed.");
+        throw new Error(errorData.error || "Failed to process payment.");
       }
       
       const paymentResult = await paymentResponse.json();
       console.log("Payment processed successfully:", paymentResult);
       
-      // Payment successful
-      setOrderId(orderResult.id);
+      // Set order confirmed
       setOrderConfirmed(true);
+      
+      // Move to confirmation step
       setStep("confirmation");
-    } catch (err) {
-      console.error("Error processing payment:", err);
-      setError(err instanceof Error ? err.message : "Payment processing failed. Please try again");
+    } catch (error) {
+      console.error("Error during checkout:", error);
+      setError(error instanceof Error ? error.message : "Something went wrong during checkout. Please try again.");
     } finally {
       setIsProcessing(false);
     }
@@ -505,10 +520,64 @@ export default function EventRegistrationPage() {
     );
   }
 
-  // Render confirmation step
-  if (step === "confirmation" && orderConfirmed) {
+  // If event is null, show a friendly message
+  if (!event) {
     return (
       <div className="max-w-4xl mx-auto p-6">
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded-md mb-6">
+          Unable to load event details. Please try again later.
+        </div>
+        <Link href="/events" className="text-blue-600 hover:underline">
+          Browse Events
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto p-6">
+      {/* Header */}
+      <div className="mb-6">
+        <Link href={`/events/${eventId}`} className="text-blue-600 hover:text-blue-800 flex items-center">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+          </svg>
+          Back to event
+        </Link>
+      </div>
+
+      {/* Progress Indicator */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between">
+          <div className={`flex flex-col items-center ${step === "tickets" ? "text-blue-600" : "text-gray-500"}`}>
+            <div className={`w-8 h-8 flex items-center justify-center rounded-full ${step === "tickets" ? "bg-blue-600 text-white" : step === "checkout" || step === "payment" || step === "confirmation" ? "bg-green-600 text-white" : "bg-gray-200"}`}>
+              1
+            </div>
+            <span className="text-xs mt-1">Select Tickets</span>
+          </div>
+          <div className="flex-1 h-1 mx-2 bg-gray-200">
+            <div className={`h-full ${step === "checkout" || step === "payment" || step === "confirmation" ? "bg-green-600" : "bg-gray-200"}`}></div>
+          </div>
+          <div className={`flex flex-col items-center ${step === "checkout" ? "text-blue-600" : step === "payment" || step === "confirmation" ? "text-green-600" : "text-gray-500"}`}>
+            <div className={`w-8 h-8 flex items-center justify-center rounded-full ${step === "checkout" ? "bg-blue-600 text-white" : step === "payment" || step === "confirmation" ? "bg-green-600 text-white" : "bg-gray-200"}`}>
+              2
+            </div>
+            <span className="text-xs mt-1">Your Details</span>
+          </div>
+          <div className="flex-1 h-1 mx-2 bg-gray-200">
+            <div className={`h-full ${step === "payment" || step === "confirmation" ? "bg-green-600" : "bg-gray-200"}`}></div>
+          </div>
+          <div className={`flex flex-col items-center ${step === "payment" || step === "confirmation" ? "text-green-600" : "text-gray-500"}`}>
+            <div className={`w-8 h-8 flex items-center justify-center rounded-full ${step === "payment" || step === "confirmation" ? "bg-green-600 text-white" : "bg-gray-200"}`}>
+              3
+            </div>
+            <span className="text-xs mt-1">Payment</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Render confirmation step */}
+      {step === "confirmation" && orderConfirmed ? (
         <div className="bg-white rounded-lg shadow-lg p-8 text-center">
           <div className="mb-6">
             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
@@ -535,19 +604,19 @@ export default function EventRegistrationPage() {
             </div>
             
             <div className="mb-6">
-              <h3 className="text-lg font-medium mb-2">{event?.title}</h3>
+              <h3 className="text-lg font-medium mb-2">{event?.title || 'Event'}</h3>
               <p className="text-gray-600">
-                {event?.startDateTime && new Date(event.startDateTime).toLocaleDateString('en-US', {
+                {event?.startDateTime ? new Date(event.startDateTime).toLocaleDateString('en-US', {
                   weekday: 'long',
                   day: 'numeric',
                   month: 'long',
                   year: 'numeric',
-                })}
-                {event?.startDateTime && (' • ' + new Date(event.startDateTime).toLocaleTimeString('en-US', {
+                }) : 'Date unavailable'}
+                {event?.startDateTime ? (' • ' + new Date(event.startDateTime).toLocaleTimeString('en-US', {
                   hour: '2-digit',
                   minute: '2-digit',
                   hour12: true
-                }))}
+                })) : ''}
               </p>
             </div>
             
@@ -556,7 +625,7 @@ export default function EventRegistrationPage() {
               <div className="space-y-2">
                 {Object.entries(ticketSelections).map(([categoryId, quantity]) => {
                   if (quantity > 0) {
-                    const category = event?.ticketCategories.find(c => c.id === categoryId);
+                    const category = event?.ticketCategories?.find(c => c.id === categoryId);
                     return (
                       <div key={categoryId} className="flex justify-between items-center p-3 bg-white rounded-md border border-gray-100">
                         <div className="flex items-center">
@@ -619,523 +688,317 @@ export default function EventRegistrationPage() {
             </Link>
           </div>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-4xl mx-auto p-6">
-      {/* Header */}
-      <div className="mb-6">
-        <Link href={`/events/${eventId}`} className="text-blue-600 hover:text-blue-800 flex items-center">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
-          </svg>
-          Back to event
-        </Link>
-      </div>
-
-      {/* Progress Indicator */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div className={`flex flex-col items-center ${step === "tickets" ? "text-blue-600" : "text-gray-500"}`}>
-            <div className={`w-8 h-8 flex items-center justify-center rounded-full ${step === "tickets" ? "bg-blue-600 text-white" : step === "checkout" || step === "payment" || step === "confirmation" ? "bg-green-600 text-white" : "bg-gray-200"}`}>
-              1
-            </div>
-            <span className="text-xs mt-1">Select Tickets</span>
-          </div>
-          <div className="flex-1 h-1 mx-2 bg-gray-200">
-            <div className={`h-full ${step === "checkout" || step === "payment" || step === "confirmation" ? "bg-green-600" : "bg-gray-200"}`}></div>
-          </div>
-          <div className={`flex flex-col items-center ${step === "checkout" ? "text-blue-600" : step === "payment" || step === "confirmation" ? "text-green-600" : "text-gray-500"}`}>
-            <div className={`w-8 h-8 flex items-center justify-center rounded-full ${step === "checkout" ? "bg-blue-600 text-white" : step === "payment" || step === "confirmation" ? "bg-green-600 text-white" : "bg-gray-200"}`}>
-              2
-            </div>
-            <span className="text-xs mt-1">Your Details</span>
-          </div>
-          <div className="flex-1 h-1 mx-2 bg-gray-200">
-            <div className={`h-full ${step === "payment" || step === "confirmation" ? "bg-green-600" : "bg-gray-200"}`}></div>
-          </div>
-          <div className={`flex flex-col items-center ${step === "payment" ? "text-blue-600" : step === "confirmation" ? "text-green-600" : "text-gray-500"}`}>
-            <div className={`w-8 h-8 flex items-center justify-center rounded-full ${step === "payment" ? "bg-blue-600 text-white" : step === "confirmation" ? "bg-green-600 text-white" : "bg-gray-200"}`}>
-              3
-            </div>
-            <span className="text-xs mt-1">Payment</span>
-          </div>
-        </div>
-      </div>
-      
-      {/* Main Content */}
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">{step === "tickets" ? "Select Your Tickets" : step === "checkout" ? "Your Details" : "Payment"}</h1>
-        
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-6">
-            {error}
-          </div>
-        )}
-        
-        {/* Ticket Selection Step */}
-        {step === "tickets" && event && (
-          <div>
-            <div className="mb-6 pb-6 border-b border-gray-200">
-              <h2 className="text-lg font-medium mb-2">{event.title}</h2>
-              <p className="text-gray-600">
-                {new Date(event.startDateTime).toLocaleDateString('en-IN', {
-                  weekday: 'long',
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric',
-                })}
-              </p>
-            </div>
-            
-            <div className="mb-6">
-              <h3 className="font-medium mb-4">Available Tickets</h3>
+      ) : (
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          {/* Tickets Selection */}
+          {step === "tickets" && (
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Select Tickets</h2>
               
-              {event.ticketCategories.length === 0 ? (
-                <p className="text-gray-500">No tickets available for this event.</p>
-              ) : (
-                <div className="space-y-4">
-                  {event.ticketCategories.map((category) => (
-                    <div key={category.id} className="flex justify-between items-center p-4 border border-gray-200 rounded-md">
-                      <div>
-                        <h4 className="font-medium">{category.name}</h4>
-                        <p className="text-sm text-gray-600">{category.description}</p>
-                        <p className="font-medium text-gray-900 mt-1">₹{category.price}</p>
-                      </div>
-                      <div className="flex items-center">
-                        <button 
-                          onClick={() => handleQuantityChange(category.id, "decrease")}
-                          className="w-8 h-8 flex items-center justify-center rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100"
-                          disabled={ticketSelections[category.id] <= 0}
-                        >
-                          -
-                        </button>
-                        <span className="mx-3 w-5 text-center">{ticketSelections[category.id] || 0}</span>
-                        <button 
-                          onClick={() => handleQuantityChange(category.id, "increase")}
-                          className="w-8 h-8 flex items-center justify-center rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100"
-                          disabled={category.maxQuantity !== null && ticketSelections[category.id] >= category.maxQuantity}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-6">
+                  {error}
                 </div>
               )}
-            </div>
-            
-            <div className="border-t border-gray-200 pt-6">
-              <div className="flex justify-between mb-2">
-                <span>Tickets</span>
-                <span>{getTotalTickets()}</span>
-              </div>
-              <div className="flex justify-between font-bold text-lg mb-6">
-                <span>Total</span>
-                <span>₹{calculateTotal().toFixed(2)}</span>
-              </div>
               
-              <button 
-                onClick={handleProceedToCheckout}
-                disabled={getTotalTickets() === 0 || !event.ticketCategories || event.ticketCategories.length === 0}
-                className={`w-full py-3 rounded-md font-medium text-white ${
-                  getTotalTickets() > 0 && event.ticketCategories && event.ticketCategories.length > 0
-                    ? "bg-blue-600 hover:bg-blue-700" 
-                    : "bg-gray-400 cursor-not-allowed"
-                }`}
-              >
-                {!event.ticketCategories || event.ticketCategories.length === 0
-                  ? "No Tickets Available" 
-                  : getTotalTickets() === 0
-                    ? "Please Select Tickets"
-                    : `Proceed to Checkout (₹${calculateTotal().toFixed(2)})`
-                }
-              </button>
-            </div>
-          </div>
-        )}
-        
-        {/* Checkout Step */}
-        {step === "checkout" && (
-          <form onSubmit={handleProceedToPayment} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name *
-                </label>
-                <input
-                  type="text"
-                  id="name"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                  required
-                />
+              <div className="mb-6 pb-6 border-b border-gray-200">
+                <h2 className="text-lg font-medium mb-2">{event.title}</h2>
+                <p className="text-gray-600">
+                  {event.startDateTime ? new Date(event.startDateTime).toLocaleDateString('en-IN', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  }) : 'Date not available'}
+                </p>
               </div>
               
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                  Email Address *
-                </label>
-                <input
-                  type="email"
-                  id="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone Number *
-                </label>
-                <input
-                  type="tel"
-                  id="phone"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleInputChange}
-                  className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="address" className="block text-sm font-medium text-gray-700 mb-1">
-                  Address
-                </label>
-                <input
-                  type="text"
-                  id="address"
-                  name="address"
-                  value={formData.address}
-                  onChange={handleInputChange}
-                  className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                />
-              </div>
-            </div>
-            
-            <div className="border-t border-gray-200 pt-6">
-              <h3 className="font-medium mb-4">Order Summary</h3>
-              
-              {Object.entries(ticketSelections).map(([categoryId, quantity]) => {
-                if (quantity > 0) {
-                  const category = event?.ticketCategories.find(c => c.id === categoryId);
-                  return (
-                    <div key={categoryId} className="flex justify-between mb-2">
-                      <span>{quantity} x {category?.name}</span>
-                      <span>₹{(category?.price || 0) * quantity}</span>
-                    </div>
-                  );
-                }
-                return null;
-              })}
-              
-              <div className="flex justify-between font-bold text-lg mt-4 pt-4 border-t border-gray-200">
-                <span>Total</span>
-                <span>₹{calculateTotal().toFixed(2)}</span>
-              </div>
-            </div>
-            
-            <div className="flex justify-between pt-6">
-              <button 
-                type="button"
-                onClick={() => setStep("tickets")}
-                className="py-2 px-4 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-              >
-                Back
-              </button>
-              
-              <button 
-                type="submit"
-                className="py-2 px-6 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                Continue to Payment
-              </button>
-            </div>
-          </form>
-        )}
-        
-        {/* Payment Step */}
-        {step === "payment" && (
-          <form onSubmit={handlePaymentSubmission} className="space-y-6">
-            <div className="mb-6">
-              <h3 className="font-medium mb-4">Payment Method</h3>
-              
-              <div className="flex flex-col md:flex-row space-y-2 md:space-y-0 md:space-x-4">
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod("credit")}
-                  className={`py-3 px-4 border rounded-md ${paymentMethod === "credit" ? "border-blue-600 bg-blue-50" : "border-gray-300"} flex items-center justify-center md:justify-start`}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                  </svg>
-                  Credit Card
-                </button>
+              <div className="mb-6">
+                <h3 className="font-medium mb-4">Available Tickets</h3>
                 
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod("upi")}
-                  className={`py-3 px-4 border rounded-md ${paymentMethod === "upi" ? "border-blue-600 bg-blue-50" : "border-gray-300"} flex items-center justify-center md:justify-start`}
+                {!event.ticketCategories || event.ticketCategories.length === 0 ? (
+                  <p className="text-gray-500">No tickets available for this event.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {event.ticketCategories.map((category) => (
+                      <div key={category.id} className="p-6 bg-white rounded-lg shadow-md flex justify-between items-center">
+                        <div>
+                          <h4 className="text-lg font-medium mb-2">{category.name}</h4>
+                          <p className="text-gray-600">{category.description}</p>
+                          <p className="text-gray-600 mt-2">
+                            <span className="font-medium">₹{category.price}</span> per ticket
+                          </p>
+                        </div>
+                        <div className="flex items-center">
+                          <button 
+                            onClick={() => handleQuantityChange(category.id, "decrease")}
+                            className="bg-gray-200 text-gray-700 px-3 py-2 rounded-l-md hover:bg-gray-300"
+                            disabled={(ticketSelections[category.id] || 0) <= 0}
+                          >
+                            -
+                          </button>
+                          <span className="px-3">{ticketSelections[category.id] || 0}</span>
+                          <button 
+                            onClick={() => handleQuantityChange(category.id, "increase")}
+                            className="bg-gray-200 text-gray-700 px-3 py-2 rounded-r-md hover:bg-gray-300"
+                            disabled={category.maxQuantity !== null && (ticketSelections[category.id] || 0) >= (category.maxQuantity || 0)}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              
+              <div className="mt-8">
+                <p className="text-lg font-medium mb-2">Total: ₹{calculateTotal().toFixed(2)}</p>
+                <button 
+                  onClick={handleProceedToCheckout} 
+                  disabled={getTotalTickets() === 0 || !event.ticketCategories || event.ticketCategories.length === 0}
+                  className={`w-full py-3 rounded-md font-medium text-white ${
+                    getTotalTickets() > 0 && event.ticketCategories && event.ticketCategories.length > 0
+                      ? "bg-blue-600 hover:bg-blue-700" 
+                      : "bg-gray-400 cursor-not-allowed"
+                  }`}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                  UPI
-                </button>
-                
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod("wallet")}
-                  className={`py-3 px-4 border rounded-md ${paymentMethod === "wallet" ? "border-blue-600 bg-blue-50" : "border-gray-300"} flex items-center justify-center md:justify-start`}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z" />
-                  </svg>
-                  Wallet
+                  {!event.ticketCategories || event.ticketCategories.length === 0
+                    ? "No Tickets Available" 
+                    : getTotalTickets() === 0
+                      ? "Please Select Tickets"
+                      : `Proceed to Checkout (₹${calculateTotal().toFixed(2)})`
+                  }
                 </button>
               </div>
             </div>
-            
-            {/* Credit Card Form with improved UX */}
-            {paymentMethod === "credit" && (
-              <div className="space-y-4">
+          )}
+
+          {/* Checkout */}
+          {step === "checkout" && (
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Your Details</h2>
+              
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-6">
+                  {error}
+                </div>
+              )}
+              
+              <form onSubmit={handleProceedToPayment} className="space-y-6">
                 <div>
-                  <label htmlFor="cardNumber" className="block text-sm font-medium text-gray-700 mb-1">
-                    Card Number
+                  <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+                    Name
                   </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      id="cardNumber"
-                      name="cardNumber"
-                      placeholder="1234 5678 9012 3456"
-                      value={formData.cardNumber}
-                      onChange={handleInputChange}
-                      className="block w-full rounded-md border border-gray-300 pl-10 pr-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                      maxLength={19}
+                  <input 
+                    type="text" 
+                    name="name" 
+                    id="name" 
+                    value={formData.name} 
+                    onChange={handleInputChange} 
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                    Email
+                  </label>
+                  <input 
+                    type="email" 
+                    name="email" 
+                    id="email" 
+                    value={formData.email} 
+                    onChange={handleInputChange} 
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
+                    Phone
+                  </label>
+                  <input 
+                    type="tel" 
+                    name="phone" 
+                    id="phone" 
+                    value={formData.phone} 
+                    onChange={handleInputChange} 
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label htmlFor="address" className="block text-sm font-medium text-gray-700">
+                    Address
+                  </label>
+                  <textarea 
+                    name="address" 
+                    id="address" 
+                    value={formData.address} 
+                    onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))} 
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
+                    rows={3}
+                  />
+                </div>
+                
+                <div>
+                  <button 
+                    type="submit" 
+                    className="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 w-full"
+                  >
+                    Proceed to Payment
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Payment */}
+          {step === "payment" && (
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Payment</h2>
+              
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-6">
+                  {error}
+                </div>
+              )}
+              
+              <form onSubmit={handlePaymentSubmission} className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Payment Method</label>
+                  <div className="mt-1 space-y-2">
+                    <label className="inline-flex items-center">
+                      <input 
+                        type="radio" 
+                        name="paymentMethod" 
+                        value="credit" 
+                        checked={paymentMethod === "credit"} 
+                        onChange={() => setPaymentMethod("credit")} 
+                        className="form-radio h-5 w-5 text-blue-600"
+                      />
+                      <span className="ml-2">Credit Card</span>
+                    </label>
+                    <label className="inline-flex items-center">
+                      <input 
+                        type="radio" 
+                        name="paymentMethod" 
+                        value="upi" 
+                        checked={paymentMethod === "upi"} 
+                        onChange={() => setPaymentMethod("upi")} 
+                        className="form-radio h-5 w-5 text-blue-600"
+                      />
+                      <span className="ml-2">UPI</span>
+                    </label>
+                    <label className="inline-flex items-center">
+                      <input 
+                        type="radio" 
+                        name="paymentMethod" 
+                        value="wallet" 
+                        checked={paymentMethod === "wallet"} 
+                        onChange={() => setPaymentMethod("wallet")} 
+                        className="form-radio h-5 w-5 text-blue-600"
+                      />
+                      <span className="ml-2">Wallet</span>
+                    </label>
+                  </div>
+                </div>
+                
+                {paymentMethod === "credit" && (
+                  <div>
+                    <div>
+                      <label htmlFor="cardNumber" className="block text-sm font-medium text-gray-700">
+                        Card Number
+                      </label>
+                      <input 
+                        type="text" 
+                        name="cardNumber" 
+                        id="cardNumber" 
+                        value={formData.cardNumber} 
+                        onChange={handleInputChange} 
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
+                        required
+                      />
+                    </div>
+                    
+                    <div className="flex space-x-4">
+                      <div className="flex-1">
+                        <label htmlFor="cardExpiry" className="block text-sm font-medium text-gray-700">
+                          Expiry Date
+                        </label>
+                        <input 
+                          type="text" 
+                          name="cardExpiry" 
+                          id="cardExpiry" 
+                          value={formData.cardExpiry} 
+                          onChange={handleInputChange} 
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
+                          required
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label htmlFor="cardCvv" className="block text-sm font-medium text-gray-700">
+                          CVV
+                        </label>
+                        <input 
+                          type="text" 
+                          name="cardCvv" 
+                          id="cardCvv" 
+                          value={formData.cardCvv} 
+                          onChange={handleInputChange} 
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {paymentMethod === "upi" && (
+                  <div>
+                    <label htmlFor="upiId" className="block text-sm font-medium text-gray-700">
+                      UPI ID
+                    </label>
+                    <input 
+                      type="text" 
+                      name="upiId" 
+                      id="upiId" 
+                      value={formData.upiId} 
+                      onChange={handleInputChange} 
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
                       required
                     />
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                      </svg>
-                    </div>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500">Format: XXXX XXXX XXXX XXXX</p>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="cardExpiry" className="block text-sm font-medium text-gray-700 mb-1">
-                      Expiry Date
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        id="cardExpiry"
-                        name="cardExpiry"
-                        placeholder="MM/YY"
-                        value={formData.cardExpiry}
-                        onChange={handleInputChange}
-                        className="block w-full rounded-md border border-gray-300 pl-10 pr-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                        maxLength={5}
-                        required
-                      />
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="cardCvv" className="block text-sm font-medium text-gray-700 mb-1">
-                      CVV
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        id="cardCvv"
-                        name="cardCvv"
-                        placeholder="123"
-                        value={formData.cardCvv}
-                        onChange={handleInputChange}
-                        className="block w-full rounded-md border border-gray-300 pl-10 pr-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                        maxLength={3}
-                        required
-                      />
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* UPI Form with improved UX */}
-            {paymentMethod === "upi" && (
-              <div>
-                <label htmlFor="upiId" className="block text-sm font-medium text-gray-700 mb-1">
-                  UPI ID
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    id="upiId"
-                    name="upiId"
-                    placeholder="yourname@bank"
-                    value={formData.upiId}
-                    onChange={handleInputChange}
-                    className="block w-full rounded-md border border-gray-300 pl-10 pr-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                    required={paymentMethod === "upi"}
-                  />
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                    </svg>
-                  </div>
-                </div>
-                <div className="mt-4 p-3 bg-yellow-50 rounded-md">
-                  <div className="flex">
-                    <div className="flex-shrink-0">
-                      <svg className="h-5 w-5 text-yellow-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div className="ml-3">
-                      <p className="text-sm text-yellow-700">
-                        To complete payment, you will receive a notification in your UPI app.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Wallet Form with improved UX */}
-            {paymentMethod === "wallet" && (
-              <div>
-                <div className="bg-blue-50 p-4 rounded-md">
-                  <div className="flex">
-                    <div className="flex-shrink-0">
-                      <svg className="h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div className="ml-3">
-                      <p className="text-sm text-blue-700">
-                        You will be redirected to complete payment using your digital wallet.
-                      </p>
-                    </div>
-                  </div> 
-                </div>
-                
-                <div className="mt-4 grid grid-cols-4 gap-2">
-                  <button
-                    type="button"
-                    className="p-3 border border-gray-200 rounded-md hover:border-blue-500 hover:bg-blue-50 transition-colors"
-                  >
-                    <img 
-                      src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Paytm_logo.svg/2560px-Paytm_logo.svg.png" 
-                      alt="Paytm" 
-                      className="h-8 w-auto mx-auto"
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    className="p-3 border border-gray-200 rounded-md hover:border-blue-500 hover:bg-blue-50 transition-colors"
-                  >
-                    <img 
-                      src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/PhonePe_Logo.svg/2560px-PhonePe_Logo.svg.png" 
-                      alt="PhonePe" 
-                      className="h-8 w-auto mx-auto"
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    className="p-3 border border-gray-200 rounded-md hover:border-blue-500 hover:bg-blue-50 transition-colors"
-                  >
-                    <img 
-                      src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Google_Pay_Logo.svg/2560px-Google_Pay_Logo.svg.png" 
-                      alt="Google Pay" 
-                      className="h-8 w-auto mx-auto"
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    className="p-3 border border-gray-200 rounded-md hover:border-blue-500 hover:bg-blue-50 transition-colors"
-                  >
-                    <img 
-                      src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/71/Amazon_Pay_logo.svg/1280px-Amazon_Pay_logo.svg.png" 
-                      alt="Amazon Pay" 
-                      className="h-8 w-auto mx-auto"
-                    />
-                  </button>
-                </div>
-              </div>
-            )}
-            
-            <div className="border-t border-gray-200 pt-6">
-              <h3 className="font-medium mb-4">Payment Summary</h3>
-              
-              <div className="flex justify-between mb-2">
-                <span>Subtotal</span>
-                <span>₹{calculateTotal().toFixed(2)}</span>
-              </div>
-              
-              <div className="flex justify-between mb-2">
-                <span>Service Fee</span>
-                <span>₹0.00</span>
-              </div>
-              
-              <div className="flex justify-between font-bold text-lg mt-4 pt-4 border-t border-gray-200">
-                <span>Total</span>
-                <span>₹{calculateTotal().toFixed(2)}</span>
-              </div>
-            </div>
-            
-            <div className="flex justify-between pt-6">
-              <button 
-                type="button"
-                onClick={() => setStep("checkout")}
-                className="py-2 px-4 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-              >
-                Back
-              </button>
-              
-              <button 
-                type="submit"
-                disabled={isProcessing}
-                className={`py-2 px-6 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center ${isProcessing ? "opacity-75 cursor-not-allowed" : ""}`}
-              >
-                {isProcessing ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Processing Payment...
-                  </>
-                ) : (
-                  "Complete Payment"
                 )}
-              </button>
+                
+                <div>
+                  <button 
+                    type="submit" 
+                    className="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 w-full flex items-center justify-center"
+                    disabled={isProcessing}
+                  >
+                    {isProcessing ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Processing...
+                      </>
+                    ) : (
+                      `Pay ₹${calculateTotal().toFixed(2)}`
+                    )}
+                  </button>
+                </div>
+              </form>
             </div>
-          </form>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
-} 
+}

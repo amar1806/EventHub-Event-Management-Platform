@@ -1,39 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth/next";
+import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/db";
 
+// Get a specific order
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: any }
 ) {
   try {
+    // Check authentication
     const session = await getServerSession(authOptions);
     
-    // Check authentication
-    if (!session?.user) {
+    if (!session) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
     
-    // Get order with related data
+    // Use destructuring with await for params in Next.js 15
+    const { id } = await params;
+    
+    // Find the order
     const order = await prisma.order.findUnique({
       where: {
-        id: params.id,
+        id: id,
       },
       include: {
         tickets: {
           include: {
             category: true,
-            event: true,
-          },
+            event: true
+          }
         },
-      },
+        event: true
+      }
     });
     
-    // Check if order exists
     if (!order) {
       return NextResponse.json(
         { error: "Order not found" },
@@ -42,44 +46,18 @@ export async function GET(
     }
     
     // Check if user has permission to view this order
-    if (order.userId !== session.user.id) {
-      // If admin, allow access
-      const user = await prisma.user.findUnique({
-        where: { id: session.user.id },
-        select: { role: true },
-      });
-      
-      // Get the event info from first ticket to check organizer
-      const firstTicket = order.tickets[0];
-      const isOrganizer = firstTicket && 
-                           firstTicket.event && 
-                           firstTicket.event.organizerId === session.user.id;
-                           
-      if (user?.role !== "ADMIN" && !isOrganizer) {
-        return NextResponse.json(
-          { error: "You do not have permission to view this order" },
-          { status: 403 }
-        );
-      }
+    if (session.user.role !== "ADMIN" && order.userId !== session.user.id) {
+      return NextResponse.json(
+        { error: "You don't have permission to view this order" },
+        { status: 403 }
+      );
     }
     
-    // Transform the response to match the expected format for the client
-    const eventInfo = order.tickets.length > 0 ? order.tickets[0].event : null;
-    
-    const transformedOrder = {
-      ...order,
-      tickets: order.tickets.map(ticket => ({
-        ...ticket,
-        ticketCategory: ticket.category // Rename category to ticketCategory for client compatibility
-      })),
-      event: eventInfo
-    };
-    
-    return NextResponse.json(transformedOrder);
+    return NextResponse.json(order);
   } catch (error) {
     console.error("Error fetching order:", error);
     return NextResponse.json(
-      { error: "An error occurred while fetching the order" },
+      { error: "Failed to fetch order" },
       { status: 500 }
     );
   }

@@ -58,9 +58,25 @@ export default function HomePage() {
             </div>
             <div className="md:w-1/2 flex justify-center">
               <div className="w-full max-w-md h-80 bg-white bg-opacity-10 rounded-lg shadow-xl overflow-hidden">
-                {/* Placeholder for hero image */}
-                <div className="w-full h-full bg-blue-800 bg-opacity-50 flex items-center justify-center text-white">
-                  <p className="text-2xl font-semibold">Event Image</p>
+                <div className="w-full h-full relative">
+                  <img 
+                    src="/images/mainevent.jpg" 
+                    alt="Event Image" 
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      // If image fails to load, show fallback placeholder
+                      e.currentTarget.style.display = 'none';
+                      e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                    }}
+                  />
+                  <div className="hidden absolute inset-0 bg-blue-800 bg-opacity-50 flex items-center justify-center text-white">
+                    <div className="text-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-white mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <p className="text-2xl font-semibold">Event Image</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -68,7 +84,6 @@ export default function HomePage() {
         </div>
         <div className="absolute bottom-0 left-0 right-0 h-16 bg-white" style={{ clipPath: 'polygon(0 100%, 100% 100%, 100% 0)' }}></div>
       </div>
-
       {/* Role-specific features section */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="text-center mb-16">

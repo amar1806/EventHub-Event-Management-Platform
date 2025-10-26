@@ -5,7 +5,7 @@ import prisma from '@/lib/db';
 
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -17,13 +17,13 @@ export async function PUT(
       );
     }
     
-    const ticketId = params.id;
+  const { id: ticketId } = await params;
     
     // Get the ticket
     const ticket = await prisma.ticket.findUnique({
       where: { id: ticketId },
       include: {
-        ticketCategory: {
+        category: {
           include: {
             event: {
               select: {
@@ -31,7 +31,8 @@ export async function PUT(
               }
             }
           }
-        }
+        },
+        event: true
       }
     });
     
@@ -43,7 +44,9 @@ export async function PUT(
     }
     
     // Check if user is authorized to update the ticket
-    const isOrganizer = ticket.ticketCategory.event.organizerId === session.user.id;
+    // Use direct event relationship or via category
+    const organizerId = ticket.category?.event.organizerId || ticket.event.organizerId;
+    const isOrganizer = organizerId === session.user.id;
     const isAdmin = session.user.role === "ADMIN";
     
     if (!isOrganizer && !isAdmin) {
@@ -68,8 +71,9 @@ export async function PUT(
     const updatedTicket = await prisma.ticket.update({
       where: { id: ticketId },
       data: {
-        checkInStatus: status,
-        checkedInAt: status === "CHECKED_IN" ? new Date() : null
+        isCheckedIn: status === "CHECKED_IN",
+        // Use status field for tracking checked-in state
+        status: status === "CHECKED_IN" ? "CHECKED_IN" : ticket.status
       }
     });
     
@@ -77,8 +81,8 @@ export async function PUT(
       message: "Ticket status updated successfully",
       ticket: {
         id: updatedTicket.id,
-        checkInStatus: updatedTicket.checkInStatus,
-        checkedInAt: updatedTicket.checkedInAt
+        isCheckedIn: updatedTicket.isCheckedIn,
+        status: updatedTicket.status
       }
     });
   } catch (error) {

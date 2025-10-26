@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/db";
 import { faker } from "@faker-js/faker";
+import bcrypt from "bcryptjs";
 
 // Function to generate a random date in the future (max 90 days ahead)
 function getRandomFutureDate() {
@@ -202,39 +203,12 @@ function generateRandomEvent(organizerId: string) {
   };
 }
 
-// Seed roles
-const seedRoles = async () => {
-  console.log("Creating roles...");
-  
-  const roles = [
-    { name: "ADMIN", description: "Administrator with full system access" },
-    { name: "ORGANIZER", description: "Event organizer with event management abilities" },
-    { name: "ATTENDEE", description: "Regular user who can attend events" },
-  ];
-  
-  for (const role of roles) {
-    await prisma.role.upsert({
-      where: { name: role.name },
-      update: {},
-      create: role,
-    });
-  }
-  
-  console.log("Roles created successfully!");
-};
-
-// Seed users
+// Seed users with new schema
 const seedUsers = async () => {
   console.log("Creating users...");
   
-  // Get roles
-  const adminRole = await prisma.role.findUnique({ where: { name: "ADMIN" } });
-  const organizerRole = await prisma.role.findUnique({ where: { name: "ORGANIZER" } });
-  const attendeeRole = await prisma.role.findUnique({ where: { name: "ATTENDEE" } });
-  
-  if (!adminRole || !organizerRole || !attendeeRole) {
-    throw new Error("Required roles not found. Please seed roles first.");
-  }
+  // Hash a default password
+  const hashedPassword = await bcrypt.hash("Password123", 10);
   
   // Create admin user
   await prisma.user.upsert({
@@ -243,11 +217,8 @@ const seedUsers = async () => {
     create: {
       name: "Admin User",
       email: "admin@example.com",
-      userRoles: {
-        create: {
-          roleId: adminRole.id,
-        },
-      },
+      password: hashedPassword,
+      role: "ADMIN",
     },
   });
   
@@ -261,11 +232,8 @@ const seedUsers = async () => {
       create: {
         name: faker.person.fullName(),
         email,
-        userRoles: {
-          create: {
-            roleId: organizerRole.id,
-          },
-        },
+        password: hashedPassword,
+        role: "ORGANIZER",
       },
     });
   }
@@ -280,11 +248,8 @@ const seedUsers = async () => {
       create: {
         name: faker.person.fullName(),
         email,
-        userRoles: {
-          create: {
-            roleId: attendeeRole.id,
-          },
-        },
+        password: hashedPassword,
+        role: "ATTENDEE",
       },
     });
   }
@@ -299,13 +264,7 @@ const seedEvents = async () => {
   // Get organizer users
   const organizers = await prisma.user.findMany({
     where: {
-      userRoles: {
-        some: {
-          role: {
-            name: "ORGANIZER",
-          },
-        },
-      },
+      role: "ORGANIZER",
     },
   });
   
@@ -350,121 +309,124 @@ const seedEvents = async () => {
   return createdEvents;
 };
 
-// Get handler to seed the database with ticket categories for all events or a specific event
+// Get handler to seed the database with sample data
 export async function GET(req: NextRequest) {
   try {
-    console.log("Starting to seed ticket categories...");
+    const session = await getServerSession(authOptions);
     
-    // Check if we're seeding for a specific event
-    const eventId = req.nextUrl.searchParams.get("eventId");
-    let events;
+    // In production, restrict this to admin users only
+    if (process.env.NODE_ENV === "production") {
+      if (!session || session.user.role !== "ADMIN") {
+        return NextResponse.json(
+          { success: false, error: "Unauthorized" },
+          { status: 401 }
+        );
+      }
+    }
     
-    if (eventId) {
-      // Seed for a specific event
-      console.log(`Seeding ticket categories for specific event ID: ${eventId}`);
-      const event = await prisma.event.findUnique({
-        where: { id: eventId }
-      });
+    // Determine what to seed based on query parameters
+    const seedType = req.nextUrl.searchParams.get("type") || "all";
+    
+    if (seedType === "users" || seedType === "all") {
+      await seedUsers();
+    }
+    
+    if (seedType === "events" || seedType === "all") {
+      await seedEvents();
+    }
+    
+    // Seed ticket categories if specified
+    if (seedType === "tickets" || seedType === "all") {
+      console.log("Starting to seed ticket categories...");
       
+      // Get eventId from query parameters
+      const { searchParams } = new URL(req.nextUrl.toString());
+      const eventId = searchParams.get("eventId");
+
+      if (!eventId) {
+        return NextResponse.json(
+          { success: false, error: "Event ID is required" },
+          { status: 400 }
+        );
+      }
+
+      // Check if event exists
+      const event = await prisma.event.findUnique({
+        where: { id: eventId },
+        include: { ticketCategories: true }
+      });
+
       if (!event) {
         return NextResponse.json(
           { success: false, error: "Event not found" },
           { status: 404 }
         );
       }
-      
-      events = [event];
-    } else {
-      // Seed for all events
-      events = await prisma.event.findMany();
-      console.log(`Found ${events.length} events to seed ticket categories for`);
-    }
-    
-    let createdCount = 0;
-    let updatedCount = 0;
-    
-    // Create ticket categories for each event
-    for (const event of events) {
-      // Check if this event already has ticket categories
-      const existingCategories = await prisma.ticketCategory.count({
-        where: { eventId: event.id }
-      });
-      
-      if (existingCategories === 0) {
-        console.log(`Creating ticket categories for event: ${event.id} - ${event.title}`);
-        // Create VIP ticket category
-        await prisma.ticketCategory.create({
-          data: {
-            name: "VIP",
-            description: "VIP access with premium seating and special perks",
-            price: event.isPaid ? 2000 : 0,
-            eventId: event.id,
-            maxQuantity: 50, // Ensure large quantity
-          },
+
+      // If ticket categories already exist, return them
+      if (event.ticketCategories && event.ticketCategories.length > 0) {
+        return NextResponse.json({
+          success: true,
+          message: "Ticket categories already exist for this event",
+          data: event.ticketCategories
         });
-        
-        // Create Standard ticket category
-        await prisma.ticketCategory.create({
-          data: {
-            name: "Standard",
-            description: "Regular admission to the event",
-            price: event.isPaid ? 500 : 0,
-            eventId: event.id,
-            maxQuantity: 100, // Ensure large quantity
-          },
-        });
-        
-        // Create Early Bird ticket category
-        await prisma.ticketCategory.create({
-          data: {
-            name: "Early Bird",
-            description: "Discounted tickets for early registrations",
-            price: event.isPaid ? 300 : 0,
-            eventId: event.id,
-            maxQuantity: 30, // Ensure large quantity
-          },
-        });
-        
-        createdCount++;
-      } else {
-        console.log(`Updating ticket categories for event: ${event.id} - ${event.title}`);
-        // Update existing ticket categories to ensure they have availability
-        const updated = await prisma.ticketCategory.updateMany({
-          where: { eventId: event.id },
-          data: {
-            maxQuantity: 100, // Increase max quantity
-          }
-        });
-        
-        if (updated.count > 0) {
-          updatedCount++;
-        }
       }
+
+      // Create default ticket categories for the event
+      const categories = [
+        {
+          name: "General Admission",
+          description: "Standard entry ticket",
+          price: event.price || 500,
+          maxQuantity: 100,
+          eventId: eventId
+        },
+        {
+          name: "VIP",
+          description: "VIP access with premium benefits",
+          price: (event.price || 500) * 2,
+          maxQuantity: 20,
+          eventId: eventId
+        },
+        {
+          name: "Early Bird",
+          description: "Discounted early bird tickets",
+          price: Math.floor((event.price || 500) * 0.8),
+          maxQuantity: 50,
+          eventId: eventId
+        }
+      ];
+
+      // Create the ticket categories
+      const createdCategories = await Promise.all(
+        categories.map(category => 
+          prisma.ticketCategory.create({
+            data: category
+          })
+        )
+      );
+
+      return NextResponse.json({
+        success: true,
+        message: "Ticket categories created successfully",
+        data: createdCategories
+      });
     }
-    
-    console.log(`Ticket categories created for ${createdCount} events and updated for ${updatedCount} events`);
     
     return NextResponse.json({
       success: true,
-      message: "Ticket categories created or updated successfully",
-      stats: {
-        createdForEvents: createdCount,
-        updatedForEvents: updatedCount,
-        totalEvents: events.length,
-        mode: eventId ? "single" : "all"
-      }
+      message: "Database seeded successfully",
+      seedType
     });
   } catch (error) {
-    console.error("Error seeding ticket categories:", error);
+    console.error("Error seeding database:", error);
     return NextResponse.json(
       { 
         success: false,
-        error: "Failed to seed ticket categories",
+        error: "Failed to seed database",
         details: error instanceof Error ? error.message : String(error)
       },
       { status: 500 }
     );
   }
 }
-
-// ... existing code ...

@@ -6,8 +6,23 @@ export async function middleware(request: NextRequest) {
   const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
   const { pathname } = request.nextUrl;
   
+  // Handle sign-out redirect specifically
+  if (pathname.includes('/api/auth/signout') || pathname === '/auth/signout') {
+    return NextResponse.redirect(new URL('/', request.url));
+  }
+  
   // Public routes that don't require authentication
-  const publicRoutes = ['/', '/events', '/about', '/contact', '/auth/login', '/auth/register', '/auth/forgot-password'];
+  const publicRoutes = [
+    '/', 
+    '/events', 
+    '/about', 
+    '/contact', 
+    '/auth/login', 
+    '/auth/register', 
+    '/auth/forgot-password',
+    '/auth/verify-otp',
+    '/auth/reset-password'
+  ];
   if (publicRoutes.some(route => pathname === route || pathname.startsWith(route + '/'))) {
     return NextResponse.next();
   }

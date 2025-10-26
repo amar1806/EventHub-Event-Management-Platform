@@ -1,10 +1,10 @@
 "use client";
 
+import React from "react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
 
 interface Attendee {
   id: string;
@@ -17,9 +17,9 @@ interface Attendee {
   checkInStatus: "NOT_CHECKED_IN" | "CHECKED_IN";
 }
 
-export default function EventAttendeesPage() {
-  const params = useParams();
-  const eventId = params.id as string;
+export default function EventAttendeesPage({ params }: { params: any }) {
+  // Use React.use to properly access params
+  const { id: eventId } = React.use(params) as unknown as { id: string };
   
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -169,7 +169,7 @@ export default function EventAttendeesPage() {
       
       // Escape values that contain commas
       const escapedRow = row.map(value => {
-        if (value.includes(",")) {
+        if (typeof value === 'string' && value.includes(",")) {
           return `"${value}"`;
         }
         return value;

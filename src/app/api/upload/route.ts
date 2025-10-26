@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { writeFile, mkdir } from "fs/promises";
+import path from "path";
 
-// Simulated image upload function
-// In a real application, this would upload to a cloud storage service
+// Image upload function
 export async function POST(req: NextRequest) {
   try {
     // Check authentication
@@ -16,8 +17,6 @@ export async function POST(req: NextRequest) {
       );
     }
     
-    // In a real implementation, we'd extract the file from the request
-    // and upload it to a storage service like AWS S3, Cloudinary, etc.
     const formData = await req.formData();
     const file = formData.get("file") as File;
     
@@ -49,25 +48,69 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
     
-    // For demo, generate a random ID and return a simulated URL
-    // In a real app, you would upload to a storage service and get the URL
-    const fileName = file.name.replace(/\s/g, "-").toLowerCase();
-    const fileId = Math.random().toString(36).substring(2, 15);
-    const timestamp = Date.now();
+    // Get custom filename if provided
+    const customFilename = formData.get("filename") as string;
+    const isMainBanner = formData.get("isMainBanner") === "true" || customFilename === "mainevent";
     
-    // Simulate URL (in production, this would be the actual URL from your storage service)
-    const url = `/uploads/${timestamp}-${fileId}-${fileName}`;
+    // Create filename
+    let finalFileName;
     
-    // Success response
-    return NextResponse.json(
-      { 
-        url, 
-        size: file.size,
-        type: file.type,
-        name: file.name
-      }, 
-      { status: 201 }
-    );
+    // Handle main banner case
+    if (isMainBanner) {
+      finalFileName = "mainevent.jpg"; // Always use this name for main banner
+    } else if (customFilename) {
+      // Use custom filename if provided
+      finalFileName = customFilename.replace(/\s/g, "-").toLowerCase();
+      // Add file extension if not present
+      if (!path.extname(finalFileName)) {
+        const ext = path.extname(file.name) || '.jpg';
+        finalFileName = `${finalFileName}${ext}`;
+      }
+    } else {
+      // Create a simple name without long timestamps or random strings
+      const baseName = path.basename(file.name, path.extname(file.name))
+                          .replace(/\s/g, "-")
+                          .toLowerCase();
+      const ext = path.extname(file.name) || '.jpg';
+      
+      // Add a short date code for uniqueness
+      const date = new Date();
+      const dateCode = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}`;
+      
+      finalFileName = `${baseName}-${dateCode}${ext}`;
+    }
+    
+    // Create paths
+    const publicImagesDir = path.join(process.cwd(), 'public', 'images');
+    const filePath = path.join(publicImagesDir, finalFileName);
+    
+    try {
+      // Ensure the directory exists
+      await mkdir(publicImagesDir, { recursive: true });
+      
+      // Write the file
+      await writeFile(filePath, buffer);
+      
+      // Create a URL that browsers can access
+      const url = `/images/${finalFileName}`;
+      
+      // Success response
+      return NextResponse.json(
+        { 
+          url, 
+          size: file.size,
+          type: file.type,
+          name: finalFileName
+        }, 
+        { status: 201 }
+      );
+    } catch (err) {
+      console.error("Error saving file:", err);
+      return NextResponse.json(
+        { error: "Failed to save file" },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error("Error uploading file:", error);
     return NextResponse.json(

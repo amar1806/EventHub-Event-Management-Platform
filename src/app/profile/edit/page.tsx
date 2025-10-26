@@ -1,246 +1,419 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import Image from 'next/image';
 import Link from 'next/link';
 
-export default function EditProfilePage() {
-  const { data: session, status, update } = useSession();
+type ProfileFormData = {
+  name: string;
+  email: string;
+  image: string;
+  bio: string;
+  birthday: string;
+  address: string;
+  gender: string;
+  phoneNumber: string;
+  website: string;
+};
+
+export default function ProfileEditPage() {
   const router = useRouter();
-  
-  const [formData, setFormData] = useState({
+  const { data: session, status, update } = useSession();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageChanged, setImageChanged] = useState(false);
+  const [formData, setFormData] = useState<ProfileFormData>({
     name: '',
     email: '',
     image: '',
+    bio: '',
+    birthday: '',
+    address: '',
+    gender: '',
+    phoneNumber: '',
+    website: '',
   });
-  
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
-  
+
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    if (status === 'loading') return;
+    
+    if (!session) {
       router.push('/auth/login');
       return;
     }
-    
+
     const fetchUserData = async () => {
-      if (status === 'authenticated' && session?.user?.id) {
-        try {
-          setIsLoading(true);
-          const response = await fetch(`/api/users/${session.user.id}`);
-          
-          if (!response.ok) {
-            throw new Error('Failed to fetch user data');
-          }
-          
-          const data = await response.json();
-          
-          setFormData({
-            name: data.user.name || '',
-            email: data.user.email || '',
-            image: data.user.image || '',
-          });
-        } catch (err) {
-          console.error('Error fetching user data:', err);
-          setError('Failed to load profile data');
-        } finally {
-          setIsLoading(false);
+      try {
+        const response = await fetch(`/api/users/${session.user.id}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch user data');
         }
+        const data = await response.json();
+        
+        setFormData({
+          name: data.name || '',
+          email: data.email || '',
+          image: data.image || '',
+          bio: data.bio || '',
+          birthday: data.birthday ? new Date(data.birthday).toISOString().split('T')[0] : '',
+          address: data.address || '',
+          gender: data.gender || '',
+          phoneNumber: data.phoneNumber || '',
+          website: data.website || '',
+        });
+        
+        setImagePreview(data.image || null);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error fetching user data:', error);
+        setError('Failed to load user data. Please try again.');
+        setIsLoading(false);
       }
     };
-    
+
     fetchUserData();
-  }, [status, session, router]);
-  
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  }, [session, status, router]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
-  
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
     
-    if (!session?.user?.id) return;
-    
+    // Check file size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Image size exceeds 2MB limit. Please choose a smaller image.');
+      return;
+    }
+
     try {
-      setIsSaving(true);
-      setError('');
-      setSuccessMessage('');
+      // Preview image
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const imageUrl = e.target?.result as string;
+        setImagePreview(imageUrl);
+        setFormData(prev => ({ 
+          ...prev, 
+          image: imageUrl
+        }));
+        setImageChanged(true);
+        setError(null);
+      };
+      reader.onerror = () => {
+        setError('Failed to read image file. Please try again.');
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Error processing image:', err);
+      setError('Failed to process image. Please try again.');
+    }
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccessMessage(null);
+    setIsSaving(true);
+
+    try {
+      // Validate name field
+      if (!formData.name.trim()) {
+        throw new Error('Name is required');
+      }
       
-      const response = await fetch(`/api/users/${session.user.id}`, {
-        method: 'PATCH',
+      // Create request body
+      const requestBody: {
+        name: string;
+        bio: string;
+        birthday: string | null;
+        address: string;
+        gender: string | null;
+        phoneNumber: string;
+        website: string;
+        image?: string;
+      } = {
+        name: formData.name,
+        bio: formData.bio,
+        birthday: formData.birthday || null,
+        address: formData.address,
+        gender: formData.gender || null,
+        phoneNumber: formData.phoneNumber,
+        website: formData.website,
+      };
+
+      // Only include image if it's changed
+      if (imageChanged && imagePreview) {
+        requestBody.image = formData.image;
+      }
+
+      console.log("Submitting profile update:", requestBody);
+
+      const response = await fetch('/api/users/profile', {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(requestBody),
       });
+
+      const data = await response.json();
       
       if (!response.ok) {
-        const data = await response.json();
         throw new Error(data.error || 'Failed to update profile');
       }
+
+      setSuccessMessage('Profile updated successfully!');
       
-      // Update session with new user data
+      // Update the session data using the update() function
       await update({
         ...session,
         user: {
-          ...session.user,
+          ...session?.user,
           name: formData.name,
-          image: formData.image,
-        },
+          image: imageChanged ? formData.image : session?.user.image,
+        }
       });
       
-      setSuccessMessage('Profile updated successfully');
-      
-      // Redirect after short delay to show success message
+      // Auto redirect after success
       setTimeout(() => {
         router.push('/profile');
-      }, 1500);
-    } catch (err) {
-      console.error('Error updating profile:', err);
-      setError(err instanceof Error ? err.message : 'Failed to update profile');
+      }, 2000);
+    } catch (error: any) {
+      console.error('Error updating profile:', error);
+      setError(error.message || 'An error occurred while updating your profile');
     } finally {
       setIsSaving(false);
     }
   };
-  
+
   if (isLoading) {
     return (
-      <div className="max-w-4xl mx-auto p-6 mt-8">
-        <div className="bg-white rounded-lg shadow-md p-8">
-          <div className="animate-pulse">
-            <div className="h-8 bg-gray-200 rounded w-48 mb-6"></div>
-            <div className="h-4 bg-gray-200 rounded w-full mb-6"></div>
-            <div className="h-4 bg-gray-200 rounded w-full mb-6"></div>
-            <div className="h-10 bg-gray-200 rounded w-32 mb-4"></div>
-          </div>
-        </div>
+      <div className="flex justify-center items-center min-h-[60vh]">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
       </div>
     );
   }
-  
+
   return (
-    <div className="max-w-4xl mx-auto p-6 mt-8">
-      <div className="bg-white rounded-lg shadow-md p-8">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold">Edit Profile</h1>
-          <Link 
-            href="/profile" 
-            className="text-blue-600 hover:underline"
-          >
-            Back to Profile
-          </Link>
-        </div>
-        
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-6">
-            {error}
-          </div>
-        )}
-        
-        {successMessage && (
-          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md mb-6">
-            {successMessage}
-          </div>
-        )}
-        
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-6">
-            <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-                Full Name
-              </label>
-              <input
-                id="name"
-                name="name"
-                type="text"
-                value={formData.name}
-                onChange={handleChange}
-                className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                placeholder="Your full name"
-              />
-            </div>
-            
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                Email Address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={handleChange}
-                disabled
-                className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm bg-gray-50 cursor-not-allowed sm:text-sm"
-                placeholder="Your email (cannot be changed)"
-              />
-              <p className="mt-1 text-xs text-gray-500">Email address cannot be changed</p>
-            </div>
-            
-            <div>
-              <label htmlFor="image" className="block text-sm font-medium text-gray-700 mb-1">
-                Profile Image URL
-              </label>
-              <input
-                id="image"
-                name="image"
-                type="text"
-                value={formData.image}
-                onChange={handleChange}
-                className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                placeholder="https://example.com/your-image.jpg"
-              />
-              <p className="mt-1 text-xs text-gray-500">Enter a URL to your profile image</p>
-            </div>
-            
-            <div className="pt-4">
-              <button
-                type="submit"
-                disabled={isSaving}
-                className={`bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                  isSaving ? 'opacity-75 cursor-not-allowed' : ''
-                }`}
-              >
-                {isSaving ? 'Saving...' : 'Save Changes'}
-              </button>
-              
-              <Link 
-                href="/profile" 
-                className="ml-4 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </Link>
-            </div>
-          </div>
-        </form>
-        
-        <div className="mt-10 pt-6 border-t">
-          <h2 className="text-lg font-semibold mb-4">Security Settings</h2>
-          
-          <div className="flex flex-col sm:flex-row gap-4">
-            <Link 
-              href="/auth/change-password" 
-              className="bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 text-center"
-            >
-              Change Password
-            </Link>
-            
-            <Link 
-              href="/auth/two-factor/setup" 
-              className="bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 text-center"
-            >
-              Set Up Two-Factor Authentication
-            </Link>
-          </div>
-        </div>
+    <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Edit Profile</h1>
+        <p className="text-gray-600">Update your personal information</p>
       </div>
+
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md">
+          <p className="text-red-800">{error}</p>
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-md">
+          <p className="text-green-800">{successMessage}</p>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="bg-white shadow-sm rounded-lg p-6">
+        <div className="space-y-6">
+          {/* Profile Image */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Profile Picture
+            </label>
+            <div className="flex items-center space-x-6">
+              <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-100 border border-gray-300">
+                {imagePreview ? (
+                  <Image
+                    src={imagePreview}
+                    alt="Profile preview"
+                    width={96}
+                    height={96}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gray-200 text-gray-500">
+                    <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                      <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
+                    </svg>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label htmlFor="profile-image" className="cursor-pointer bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50">
+                  Change Picture
+                </label>
+                <input
+                  id="profile-image"
+                  name="image"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageChange}
+                  className="sr-only"
+                />
+                <p className="mt-1 text-xs text-gray-500">JPEG, PNG or GIF (Max 2MB)</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Name */}
+          <div>
+            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+              Full Name
+            </label>
+            <input
+              id="name"
+              name="name"
+              type="text"
+              value={formData.name}
+              onChange={handleInputChange}
+              className="block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              placeholder="Your full name"
+              required
+            />
+          </div>
+
+          {/* Email (read-only) */}
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+              Email Address
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              value={formData.email}
+              readOnly
+              disabled
+              className="block w-full border border-gray-200 bg-gray-50 rounded-md px-3 py-2 shadow-sm text-gray-500 sm:text-sm"
+              placeholder="Your email (cannot be changed)"
+            />
+            <p className="mt-1 text-xs text-gray-500">Email address cannot be changed</p>
+          </div>
+
+          {/* Bio */}
+          <div>
+            <label htmlFor="bio" className="block text-sm font-medium text-gray-700 mb-1">
+              Bio
+            </label>
+            <textarea
+              id="bio"
+              name="bio"
+              rows={4}
+              value={formData.bio}
+              onChange={handleInputChange}
+              className="block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              placeholder="Tell us a little about yourself"
+            />
+          </div>
+
+          {/* Birthday */}
+          <div>
+            <label htmlFor="birthday" className="block text-sm font-medium text-gray-700 mb-1">
+              Birthday
+            </label>
+            <input
+              id="birthday"
+              name="birthday"
+              type="date"
+              value={formData.birthday}
+              onChange={handleInputChange}
+              className="block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+            />
+          </div>
+
+          {/* Gender */}
+          <div>
+            <label htmlFor="gender" className="block text-sm font-medium text-gray-700 mb-1">
+              Gender
+            </label>
+            <select
+              id="gender"
+              name="gender"
+              value={formData.gender}
+              onChange={handleInputChange}
+              className="block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+            >
+              <option value="">Prefer not to say</option>
+              <option value="MALE">Male</option>
+              <option value="FEMALE">Female</option>
+              <option value="OTHER">Other</option>
+              <option value="PREFER_NOT_TO_SAY">Prefer not to say</option>
+            </select>
+          </div>
+
+          {/* Address */}
+          <div>
+            <label htmlFor="address" className="block text-sm font-medium text-gray-700 mb-1">
+              Address
+            </label>
+            <input
+              id="address"
+              name="address"
+              type="text"
+              value={formData.address}
+              onChange={handleInputChange}
+              className="block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              placeholder="Your address"
+            />
+          </div>
+
+          {/* Phone Number */}
+          <div>
+            <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 mb-1">
+              Phone Number
+            </label>
+            <input
+              id="phoneNumber"
+              name="phoneNumber"
+              type="tel"
+              value={formData.phoneNumber}
+              onChange={handleInputChange}
+              className="block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              placeholder="Your phone number"
+            />
+          </div>
+
+          {/* Website */}
+          <div>
+            <label htmlFor="website" className="block text-sm font-medium text-gray-700 mb-1">
+              Website
+            </label>
+            <input
+              id="website"
+              name="website"
+              type="url"
+              value={formData.website}
+              onChange={handleInputChange}
+              className="block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              placeholder="https://yourwebsite.com"
+            />
+          </div>
+
+          {/* Submit Button */}
+          <div className="flex items-center justify-end space-x-3 pt-4">
+            <Link href="/profile" className="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+              Cancel
+            </Link>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className={`inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                isSaving ? 'opacity-75 cursor-not-allowed' : ''
+              }`}
+            >
+              {isSaving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 } 
